@@ -48,7 +48,7 @@ def get_total_pages(base_url, session):
     return total_pages
 
 def scrape_listings(base_url, session):
-    total_pages = get_total_pages(base_url, session)
+    total_pages = 3  # Limit to the first 3 pages for testing
     for page_number in range(1, total_pages + 1):
         print(f"Scraping page {page_number} of {total_pages}")
         url = f"{base_url}?page={page_number}"
@@ -71,6 +71,20 @@ def scrape_listings(base_url, session):
 def scrape_property_details(url, session):
     response = session.get(url)
     soup = BeautifulSoup(response.content, "html.parser")
+
+    # Location
+    address_element = soup.find("address")
+    if address_element:
+        location = address_element.text.strip().split(",")
+        town = location[-2].strip() if len(location) > 1 else "Unknown"
+        state = location[-1].strip() if len(location) > 0 else "Unknown"
+    else:
+        town, state = "Unknown", "Unknown"
+
+    # Filter by specified states
+    allowed_states = ["Abuja", "Kaduna", "Kano"]
+    if state not in allowed_states:
+        return
 
     # Details section
     details_table = soup.find("table", class_="table table-bordered table-striped")
@@ -98,15 +112,6 @@ def scrape_property_details(url, session):
     bathrooms = details.get("Bathrooms", "Unknown")
     toilets = details.get("Toilets", "Unknown")
     parking_spaces = details.get("Parking Spaces", "Unknown")
-
-    # Location
-    address_element = soup.find("address")
-    if address_element:
-        location = address_element.text.strip().split(",")
-        town = location[-2].strip() if len(location) > 1 else "Unknown"
-        state = location[-1].strip() if len(location) > 0 else "Unknown"
-    else:
-        town, state = "Unknown", "Unknown"
 
     # Price
     price_element = soup.select_one("span.property-details-price")
@@ -139,6 +144,6 @@ session.mount("https://", adapter)
 # Create database and table
 create_database()
 
-# Start scraping all pages
+# Start scraping the first 3 pages
 base_url = "https://nigeriapropertycentre.com/for-sale"
 scrape_listings(base_url, session)
