@@ -1,6 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
 import sqlite3
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 def create_database():
     conn = sqlite3.connect('for_sale.db')
@@ -37,41 +39,57 @@ def insert_listing(added_on_year, property_type, bedrooms, bathrooms, toilets, p
     conn.commit()
     conn.close()
 
-def scrape_listings():
-    base_url = "https://nigeriapropertycentre.com/for-sale"
-    response = requests.get(base_url)
+def get_total_pages(base_url, session):
+    response = session.get(base_url)
     soup = BeautifulSoup(response.content, "html.parser")
 
-    # Find all property listings
-    listings = soup.find_all("div", itemtype="https://schema.org/ListItem")
+    pagination = soup.select("ul.pagination li a")
+    total_pages = int(pagination[-2].text) if pagination else 1
+    return total_pages
 
-    for listing in listings:
-        property_url = listing.find("a", itemprop="url")["href"]
-        if property_url.startswith("/"):
-            property_url = f"https://nigeriapropertycentre.com{property_url}"
-        property_title = listing.find("h3", itemprop="name").text.strip()
-        print(f"Scraping details for: {property_title}")
-        scrape_property_details(property_url)
+def scrape_listings(base_url, session):
+    total_pages = get_total_pages(base_url, session)
+    for page_number in range(1, total_pages + 1):
+        print(f"Scraping page {page_number} of {total_pages}")
+        url = f"{base_url}?page={page_number}"
+        response = session.get(url)
+        soup = BeautifulSoup(response.content, "html.parser")
 
-def scrape_property_details(url):
-    response = requests.get(url)
+        # Find all property listings
+        listings = soup.find_all("div", itemtype="https://schema.org/ListItem")
+        if not listings:
+            break
+
+        for listing in listings:
+            property_url = listing.find("a", itemprop="url")["href"]
+            if property_url.startswith("/"):
+                property_url = f"https://nigeriapropertycentre.com{property_url}"
+            property_title = listing.find("h3", itemprop="name").text.strip()
+            print(f"Scraping details for: {property_title}")
+            scrape_property_details(property_url, session)
+
+def scrape_property_details(url, session):
+    response = session.get(url)
     soup = BeautifulSoup(response.content, "html.parser")
 
     # Details section
     details_table = soup.find("table", class_="table table-bordered table-striped")
-    rows = details_table.find_all("tr")
-    details = {}
+    if details_table:
+        rows = details_table.find_all("tr")
+        details = {}
 
-    for row in rows:
-        cols = row.find_all("td")
-        for col in cols:
-            if "Property Ref:" in col.text or "Last Updated:" in col.text:
-                continue  # Skip these details
-            key_value = col.text.split(":")
-            if len(key_value) == 2:
-                key = key_value[0].strip()
-                value = key_value[1].strip()
-                details[key] = value
+        for row in rows:
+            cols = row.find_all("td")
+            for col in cols:
+                if "Property Ref:" in col.text or "Last Updated:" in col.text:
+                    continue  # Skip these details
+                key_value = col.text.split(":")
+                if len(key_value) == 2:
+                    key = key_value[0].strip()
+                    value = key_value[1].strip()
+                    details[key] = value
+    else:
+        details = {}
 
     # Extract specific details
     added_on_year = details.get("Added On", "Unknown").split()[-1] if "Added On" in details else "Unknown"
@@ -111,8 +129,16 @@ def scrape_property_details(url):
     print(f"Price: {price}")
     print("-----\n")
 
+# Create a requests session with retry strategy
+session = requests.Session()
+retry = Retry(total=5, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])
+adapter = HTTPAdapter(max_retries=retry)
+session.mount("http://", adapter)
+session.mount("https://", adapter)
+
 # Create database and table
 create_database()
 
-# Start scraping
-scrape_listings()
+# Start scraping all pages
+base_url = "https://nigeriapropertycentre.com/for-sale"
+scrape_listings(base_url, session)
