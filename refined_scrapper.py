@@ -82,7 +82,7 @@ def scrape_property_details(url, session):
         town, state = "Unknown", "Unknown"
 
     # Filter by specified states
-    allowed_states = ["Abuja", "Kaduna", "Kano"]
+    allowed_states = ["Abuja"]
     if state not in allowed_states:
         return
 
